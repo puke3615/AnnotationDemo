@@ -1,10 +1,10 @@
 package com.puke.annotationdemo;
 
 import android.app.Activity;
+import android.support.annotation.IdRes;
 import android.view.View;
 
 import java.lang.reflect.Field;
-import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 
 /**
@@ -13,17 +13,46 @@ import java.lang.reflect.Method;
  */
 public class BindHandler {
 
+    private interface Finder {
+        View findViewById(@IdRes int id);
+    }
+
     /**
      * 处理对Activity的注解
      *
      * @param activity 目标Activity
      */
-    public static void handleBind(Activity activity) {
+    public static void handleBind(final Activity activity) {
         Class cls = activity.getClass();
         handleSetContentView(activity);
-        handleFindView(cls.getDeclaredFields(), activity);
-        handleClickEvent(cls.getDeclaredMethods(), activity);
+        Finder finder = new Finder() {
+            @Override
+            public View findViewById(@IdRes int id) {
+                return activity.findViewById(id);
+            }
+        };
+        handleFindView(cls.getDeclaredFields(), activity, finder);
+        handleClickEvent(cls.getDeclaredMethods(), activity, finder);
     }
+
+    /**
+     * 处理对Fragment,ViewHolder,CustomView等的注解
+     *
+     * @param owner 待处理对象
+     * @param view  对应的View
+     */
+    public static void handleBind(Object owner, final View view) {
+        Class cls = owner.getClass();
+        Finder finder = new Finder() {
+            @Override
+            public View findViewById(@IdRes int id) {
+                return view.findViewById(id);
+            }
+        };
+        handleFindView(cls.getDeclaredFields(), owner, finder);
+        handleClickEvent(cls.getDeclaredMethods(), owner, finder);
+    }
+
 
     //绑定xml布局
     private static void handleSetContentView(Activity activity) {
@@ -39,7 +68,7 @@ public class BindHandler {
     }
 
     //View的注入
-    private static void handleFindView(Field[] declaredFields, Activity activity) {
+    private static void handleFindView(Field[] declaredFields, Object owner, Finder finder) {
         if (declaredFields == null || declaredFields.length == 0) {
             return;
         }
@@ -49,11 +78,11 @@ public class BindHandler {
                 Bind bind = field.getAnnotation(Bind.class);
                 int id = bind.value();
                 if (id != 0) {
-                    View view = activity.findViewById(id);
+                    View view = finder.findViewById(id);
                     field.setAccessible(true);
                     try {
                         //直接通过反射set进去
-                        field.set(activity, view);
+                        field.set(owner, view);
                     } catch (IllegalAccessException e) {
                         e.printStackTrace();
                     }
@@ -63,7 +92,7 @@ public class BindHandler {
     }
 
     //点击事件的绑定
-    private static void handleClickEvent(Method[] declaredMethods, final Activity activity) {
+    private static void handleClickEvent(Method[] declaredMethods, final Object owner, Finder finder) {
         if (declaredMethods == null || declaredMethods.length == 0) {
             return;
         }
@@ -73,14 +102,12 @@ public class BindHandler {
                 Bind bind = method.getAnnotation(Bind.class);
                 int id = bind.value();
                 if (id != 0) {
-                    activity.findViewById(id).setOnClickListener(new View.OnClickListener() {
+                    finder.findViewById(id).setOnClickListener(new View.OnClickListener() {
                         @Override
                         public void onClick(View v) {
                             try {
-                                method.invoke(activity);
-                            } catch (IllegalAccessException e) {
-                                e.printStackTrace();
-                            } catch (InvocationTargetException e) {
+                                method.invoke(owner);
+                            } catch (Exception e) {
                                 e.printStackTrace();
                             }
                         }
